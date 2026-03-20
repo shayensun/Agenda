@@ -1,5 +1,4 @@
 .next
-*.tsbuildinfo
 node_modules
 npm-debug.log*
 yarn-debug.log*

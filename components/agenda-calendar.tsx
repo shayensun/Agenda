@@ -1,41 +1,23 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-
-type AgendaCategory = 'project' | 'travel' | 'personal' | 'todo';
+import { useEffect, useMemo, useState } from 'react';
 
 type AgendaItem = {
   id: string;
   date: string;
   title: string;
   time?: string;
-  startTime?: string;
-  durationHours?: number;
   location?: string;
   description?: string;
-  category?: AgendaCategory;
-  reminderEmail?: string;
-  reminderEnabled?: boolean;
-  reminderSentAt?: string;
-  reminderError?: string;
+  category?: 'project' | 'travel' | 'personal' | 'todo';
 };
 
 type FormState = {
   title: string;
-  startTime: string;
-  durationHours: string;
+  time: string;
   location: string;
   description: string;
-  category: AgendaCategory;
-  reminderEmail: string;
-  reminderEnabled: boolean;
-};
-
-type LocationSuggestion = {
-  displayName: string;
-  lat: string;
-  lon: string;
-  subtitle?: string;
+  category: AgendaItem['category'];
 };
 
 const STORAGE_KEY = 'agenda-2026-items';
@@ -55,19 +37,7 @@ const MONTHS = [
   'November',
   'December',
 ];
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
-  const hour = Math.floor(index / 2);
-  const minute = index % 2 === 0 ? '00' : '30';
-  const value = `${pad(hour)}:${minute}`;
-  const labelDate = new Date(2026, 0, 1, hour, Number(minute));
-  const label = new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(labelDate);
-
-  return { value, label };
-});
-const CATEGORY_META: Record<AgendaCategory, { label: string; dot: string; badge: string }> = {
+const CATEGORY_META: Record<NonNullable<AgendaItem['category']>, { label: string; dot: string; badge: string }> = {
   project: { label: 'Project', dot: 'bg-blue-500', badge: 'bg-blue-50 text-blue-700 border-blue-200' },
   travel: { label: 'Travel', dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
   personal: { label: 'Personal', dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -76,13 +46,10 @@ const CATEGORY_META: Record<AgendaCategory, { label: string; dot: string; badge:
 
 const emptyForm = (): FormState => ({
   title: '',
-  startTime: '',
-  durationHours: '1',
+  time: '',
   location: '',
   description: '',
   category: 'project',
-  reminderEmail: '',
-  reminderEnabled: false,
 });
 
 function pad(value: number) {
@@ -127,121 +94,29 @@ function getMonthGrid(year: number, monthIndex: number) {
   });
 }
 
-function parseEventDateTime(dateKey: string, startTime?: string) {
-  if (!startTime) {
-    return null;
-  }
-
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const [hour, minute] = startTime.split(':').map(Number);
-  if ([year, month, day, hour, minute].some((value) => Number.isNaN(value))) {
-    return null;
-  }
-
-  return new Date(year, month - 1, day, hour, minute, 0, 0);
-}
-
-function formatDateHeading(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(year, month - 1, day));
-}
-
-function formatTimeLabel(value?: string) {
-  if (!value) {
-    return '';
-  }
-
-  const [hour, minute] = value.split(':').map(Number);
-  if (Number.isNaN(hour) || Number.isNaN(minute)) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(2026, 0, 1, hour, minute));
-}
-
-function formatDurationLabel(durationHours?: number) {
-  if (!durationHours) {
-    return '';
-  }
-
-  const wholeHours = Number.isInteger(durationHours) ? `${durationHours}` : durationHours.toFixed(1);
-  return `${wholeHours}h`;
-}
-
-function formatSchedule(item: AgendaItem) {
-  const start = item.startTime ?? item.time;
-  const startLabel = formatTimeLabel(start);
-  const durationLabel = formatDurationLabel(item.durationHours);
-
-  if (startLabel && durationLabel) {
-    return `${startLabel} · ${durationLabel}`;
-  }
-
-  if (startLabel) {
-    return startLabel;
-  }
-
-  return durationLabel;
-}
-
-function formatReminderStatus(item: AgendaItem) {
-  if (item.reminderSentAt) {
-    return 'Sent';
-  }
-
-  if (item.reminderEnabled && item.reminderEmail) {
-    return 'Armed';
-  }
-
-  return 'Off';
-}
-
 function sortItems(items: AgendaItem[]) {
   return [...items].sort((a, b) => {
-    const left = `${a.date} ${a.startTime ?? a.time ?? ''} ${a.title}`;
-    const right = `${b.date} ${b.startTime ?? b.time ?? ''} ${b.title}`;
+    const left = `${a.date} ${a.time ?? ''}`;
+    const right = `${b.date} ${b.time ?? ''}`;
     return left.localeCompare(right);
   });
 }
 
-function normalizeAgendaItem(item: AgendaItem): AgendaItem {
-  return {
-    ...item,
-    startTime: item.startTime ?? item.time,
-    durationHours: item.durationHours ?? undefined,
-    category: item.category ?? 'project',
-    reminderEnabled: Boolean(item.reminderEnabled && item.reminderEmail),
-    reminderError: item.reminderError ?? undefined,
-  };
-}
-
 export function AgendaCalendar() {
-  const today = useMemo(() => new Date(), []);
-  const defaultSelectedDay = today.getFullYear() === YEAR ? today.getDate() : 1;
   const [currentMonth, setCurrentMonth] = useState(getInitialMonth());
-  const [selectedDate, setSelectedDate] = useState(toDateKey(YEAR, getInitialMonth(), defaultSelectedDay));
+  const [selectedDate, setSelectedDate] = useState(toDateKey(YEAR, getInitialMonth(), new Date().getFullYear() === YEAR ? new Date().getDate() : 1));
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm());
   const [isHydrated, setIsHydrated] = useState(false);
-  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
-  const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'error'>('idle');
-  const [reminderNotice, setReminderNotice] = useState('');
-  const sendingReminderIds = useRef(new Set<string>());
 
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as AgendaItem[];
-        setAgendaItems(sortItems(parsed.filter((item) => item.date.startsWith(`${YEAR}-`)).map(normalizeAgendaItem)));
+        setAgendaItems(sortItems(parsed.filter((item) => item.date.startsWith(`${YEAR}-`))));
       }
     } catch {
       setAgendaItems([]);
@@ -267,153 +142,7 @@ export function AgendaCalendar() {
     });
     setEditingId(null);
     setForm(emptyForm());
-    setLocationSuggestions([]);
   }, [currentMonth]);
-
-  useEffect(() => {
-    const query = form.location.trim();
-
-    if (query.length < 3) {
-      setLocationSuggestions([]);
-      setLocationStatus('idle');
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(async () => {
-      setLocationStatus('loading');
-
-      try {
-        const params = new URLSearchParams({
-          q: query,
-        });
-        const response = await fetch(`/api/location-search?${params.toString()}`, {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error('Location search failed.');
-        }
-
-        const results = (await response.json()) as {
-          suggestions?: Array<{ displayName: string; lat: string; lon: string; subtitle?: string }>;
-        };
-        setLocationSuggestions(results.suggestions ?? []);
-        setLocationStatus('idle');
-      } catch (error) {
-        if ((error as Error).name === 'AbortError') {
-          return;
-        }
-
-        setLocationSuggestions([]);
-        setLocationStatus('error');
-      }
-    }, 350);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [form.location]);
-
-  useEffect(() => {
-    if (!isHydrated) {
-      return;
-    }
-
-    let isCancelled = false;
-
-    const checkReminders = async () => {
-      const now = new Date();
-
-      for (const item of agendaItems) {
-        if (
-          !item.reminderEnabled ||
-          !item.reminderEmail ||
-          item.reminderSentAt ||
-          sendingReminderIds.current.has(item.id)
-        ) {
-          continue;
-        }
-
-        const eventDateTime = parseEventDateTime(item.date, item.startTime ?? item.time);
-        if (!eventDateTime || now >= eventDateTime) {
-          continue;
-        }
-
-        const reminderAt = new Date(eventDateTime.getTime() - 30 * 60 * 1000);
-        if (now < reminderAt) {
-          continue;
-        }
-
-        sendingReminderIds.current.add(item.id);
-
-        try {
-          const response = await fetch('/api/reminders', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              title: item.title,
-              date: item.date,
-              startTime: item.startTime ?? item.time,
-              durationHours: item.durationHours,
-              location: item.location,
-              description: item.description,
-              reminderEmail: item.reminderEmail,
-            }),
-          });
-
-          const result = (await response.json().catch(() => null)) as { error?: string } | null;
-          if (!response.ok) {
-            throw new Error(result?.error ?? 'Unable to send reminder email.');
-          }
-
-          if (!isCancelled) {
-            setAgendaItems((current) =>
-              current.map((entry) =>
-                entry.id === item.id
-                  ? {
-                      ...entry,
-                      reminderSentAt: new Date().toISOString(),
-                      reminderError: undefined,
-                    }
-                  : entry,
-              ),
-            );
-            setReminderNotice(`Reminder sent for “${item.title}”.`);
-          }
-        } catch (error) {
-          if (!isCancelled) {
-            setReminderNotice((error as Error).message);
-            setAgendaItems((current) =>
-              current.map((entry) =>
-                entry.id === item.id
-                  ? {
-                      ...entry,
-                      reminderError: (error as Error).message,
-                    }
-                  : entry,
-              ),
-            );
-          }
-        } finally {
-          sendingReminderIds.current.delete(item.id);
-        }
-      }
-    };
-
-    void checkReminders();
-    const intervalId = window.setInterval(() => {
-      void checkReminders();
-    }, 60_000);
-
-    return () => {
-      isCancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [agendaItems, isHydrated]);
 
   const monthGrid = useMemo(() => getMonthGrid(YEAR, currentMonth), [currentMonth]);
 
@@ -440,14 +169,7 @@ export function AgendaCalendar() {
 
     return sortItems(
       filtered.filter((item) =>
-        [
-          item.title,
-          item.location,
-          item.description,
-          item.startTime,
-          item.reminderEmail,
-          CATEGORY_META[item.category ?? 'project'].label,
-        ]
+        [item.title, item.location, item.description, item.time, CATEGORY_META[item.category ?? 'project'].label]
           .filter(Boolean)
           .some((value) => value!.toLowerCase().includes(search)),
       ),
@@ -467,25 +189,14 @@ export function AgendaCalendar() {
       return;
     }
 
-    const parsedDuration = Number(form.durationHours);
-    const durationHours = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : undefined;
-    const reminderEmail = form.reminderEnabled ? form.reminderEmail.trim() : '';
-    const reminderEnabled = Boolean(form.reminderEnabled && reminderEmail && form.startTime);
-
     const item: AgendaItem = {
       id: editingId ?? crypto.randomUUID(),
       date: selectedDate,
       title,
-      time: form.startTime || undefined,
-      startTime: form.startTime || undefined,
-      durationHours,
+      time: form.time.trim() || undefined,
       location: form.location.trim() || undefined,
       description: form.description.trim() || undefined,
       category: form.category,
-      reminderEmail: reminderEmail || undefined,
-      reminderEnabled,
-      reminderSentAt: undefined,
-      reminderError: undefined,
     };
 
     setAgendaItems((current) => {
@@ -493,10 +204,8 @@ export function AgendaCalendar() {
       return sortItems(next);
     });
 
-    setReminderNotice(reminderEnabled ? 'Reminder armed. Keep this page open near the event time so the email can be triggered.' : '');
     setEditingId(null);
     setForm(emptyForm());
-    setLocationSuggestions([]);
   };
 
   const startEditing = (item: AgendaItem) => {
@@ -505,15 +214,11 @@ export function AgendaCalendar() {
     setCurrentMonth(Number(item.date.split('-')[1]) - 1);
     setForm({
       title: item.title,
-      startTime: item.startTime ?? item.time ?? '',
-      durationHours: item.durationHours ? String(item.durationHours) : '1',
+      time: item.time ?? '',
       location: item.location ?? '',
       description: item.description ?? '',
       category: item.category ?? 'project',
-      reminderEmail: item.reminderEmail ?? '',
-      reminderEnabled: Boolean(item.reminderEnabled && item.reminderEmail),
     });
-    setReminderNotice('');
   };
 
   const deleteItem = (id: string) => {
@@ -521,7 +226,6 @@ export function AgendaCalendar() {
     if (editingId === id) {
       setEditingId(null);
       setForm(emptyForm());
-      setLocationSuggestions([]);
     }
   };
 
@@ -530,9 +234,6 @@ export function AgendaCalendar() {
     const count = agendaItems.filter((item) => item.date.startsWith(prefix)).length;
     return { label, index, count };
   });
-
-  const selectedDateEventCount = selectedItems.length;
-  const todayDateKey = toDateKey(YEAR, getInitialMonth(), today.getFullYear() === YEAR ? today.getDate() : 1);
 
   return (
     <div className="min-h-screen px-4 py-6 text-slate-800 sm:px-6 lg:px-8">
@@ -570,9 +271,7 @@ export function AgendaCalendar() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="text-sm font-medium uppercase tracking-[0.22em] text-slate-500">Monthly calendar</p>
-                <h2 className="mt-1 text-2xl font-semibold text-slate-900">
-                  {MONTHS[currentMonth]} {YEAR}
-                </h2>
+                <h2 className="mt-1 text-2xl font-semibold text-slate-900">{MONTHS[currentMonth]} {YEAR}</h2>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -613,10 +312,9 @@ export function AgendaCalendar() {
                     return <div key={`empty-${index}`} className="min-h-28 rounded-3xl border border-dashed border-transparent bg-transparent" />;
                   }
 
-                  const dayItems = sortItems(itemsByDate[entry.dateKey] ?? []);
-                  const count = dayItems.length;
+                  const count = itemsByDate[entry.dateKey]?.length ?? 0;
                   const isSelected = entry.dateKey === selectedDate;
-                  const isTodayMonth = entry.dateKey === todayDateKey;
+                  const isTodayMonth = entry.dateKey === toDateKey(YEAR, getInitialMonth(), new Date().getFullYear() === YEAR ? new Date().getDate() : 1);
 
                   return (
                     <button
@@ -626,8 +324,6 @@ export function AgendaCalendar() {
                         setSelectedDate(entry.dateKey);
                         setEditingId(null);
                         setForm(emptyForm());
-                        setLocationSuggestions([]);
-                        setReminderNotice('');
                       }}
                       className={`min-h-28 rounded-3xl border p-3 text-left transition ${
                         isSelected
@@ -636,11 +332,9 @@ export function AgendaCalendar() {
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span
-                          className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${
-                            isSelected ? 'bg-white/15 text-white' : isTodayMonth ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
+                        <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${
+                          isSelected ? 'bg-white/15 text-white' : isTodayMonth ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'
+                        }`}>
                           {entry.dayNumber}
                         </span>
                         {count > 0 ? (
@@ -651,7 +345,7 @@ export function AgendaCalendar() {
                       </div>
                       <div className="mt-6 space-y-2">
                         <div className="flex flex-wrap gap-1.5">
-                          {dayItems.slice(0, 3).map((item) => (
+                          {(itemsByDate[entry.dateKey] ?? []).slice(0, 3).map((item) => (
                             <span
                               key={item.id}
                               className={`h-2.5 w-2.5 rounded-full ${isSelected ? 'bg-white' : CATEGORY_META[item.category ?? 'project'].dot}`}
@@ -660,7 +354,7 @@ export function AgendaCalendar() {
                           ))}
                         </div>
                         <p className={`line-clamp-2 text-xs leading-5 ${isSelected ? 'text-white/80' : 'text-slate-500'}`}>
-                          {dayItems.slice(0, 2).map((item) => item.title).join(' · ') || 'No agenda yet'}
+                          {(itemsByDate[entry.dateKey] ?? []).slice(0, 2).map((item) => item.title).join(' · ') || 'No agenda yet'}
                         </p>
                       </div>
                     </button>
@@ -677,7 +371,7 @@ export function AgendaCalendar() {
                 </div>
                 <input
                   value={searchTerm}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(event.target.value)}
+                  onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Search this month"
                   className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none ring-0 transition placeholder:text-slate-400 focus:border-slate-400 sm:max-w-56"
                 />
@@ -710,15 +404,9 @@ export function AgendaCalendar() {
               <p className="text-sm font-medium uppercase tracking-[0.22em] text-slate-500">Selected day</p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-900">{formatLongDate(selectedDate)}</h2>
               <p className="mt-2 text-sm text-slate-500">
-                {selectedDateEventCount} item(s) planned. Click any day to write agenda details for deadlines, trips, checklists, or personal plans.
+                Click any day to write agenda details for deadlines, trips, checklists, or personal plans.
               </p>
             </div>
-
-            {reminderNotice ? (
-              <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                {reminderNotice}
-              </div>
-            ) : null}
 
             <div className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between">
@@ -732,8 +420,6 @@ export function AgendaCalendar() {
                     onClick={() => {
                       setEditingId(null);
                       setForm(emptyForm());
-                      setLocationSuggestions([]);
-                      setReminderNotice('');
                     }}
                     className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600"
                   >
@@ -750,8 +436,6 @@ export function AgendaCalendar() {
                 ) : (
                   selectedItems.map((item) => {
                     const meta = CATEGORY_META[item.category ?? 'project'];
-                    const scheduleLabel = formatSchedule(item);
-                    const reminderStatus = formatReminderStatus(item);
                     return (
                       <article key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                         <div className="flex items-start justify-between gap-3">
@@ -760,16 +444,11 @@ export function AgendaCalendar() {
                               <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.badge}`}>
                                 {meta.label}
                               </span>
-                              {scheduleLabel ? <span className="text-xs font-medium text-slate-500">{scheduleLabel}</span> : null}
-                              {item.reminderEnabled && item.reminderEmail ? (
-                                <span className="text-xs font-medium text-amber-700">⏰ {item.reminderEmail}</span>
-                              ) : null}
-                              <span className="text-xs font-medium text-slate-400">Reminder: {reminderStatus}</span>
+                              {item.time ? <span className="text-xs font-medium text-slate-500">{item.time}</span> : null}
                             </div>
                             <h4 className="text-base font-semibold text-slate-900">{item.title}</h4>
                             {item.location ? <p className="text-sm text-slate-600">📍 {item.location}</p> : null}
                             {item.description ? <p className="text-sm leading-6 text-slate-500">{item.description}</p> : null}
-                            {item.reminderError ? <p className="text-xs text-red-500">Reminder issue: {item.reminderError}</p> : null}
                           </div>
                           <div className="flex gap-2">
                             <button type="button" onClick={() => startEditing(item)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300">
@@ -802,63 +481,27 @@ export function AgendaCalendar() {
                   <input
                     required
                     value={form.title}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setForm((current) => ({ ...current, title: event.target.value }))
-                    }
+                    onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition placeholder:text-slate-400 focus:border-slate-400"
                     placeholder="Project review, flight, checklist..."
                   />
                 </label>
 
-                <div className="grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    Start time
-                    <select
-                      value={form.startTime}
-                      onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
-                        setForm((current) => ({ ...current, startTime: event.target.value }))
-                      }
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-slate-400"
-                    >
-                      <option value="">Choose a start time</option>
-                      {TIME_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    Duration (hours)
+                    Time
                     <input
-                      type="number"
-                      min="0.5"
-                      step="0.5"
-                      value={form.durationHours}
-                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                        setForm((current) => ({ ...current, durationHours: event.target.value }))
-                      }
+                      value={form.time}
+                      onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))}
                       className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition placeholder:text-slate-400 focus:border-slate-400"
-                      placeholder="1.5"
+                      placeholder="2:00 PM"
                     />
                   </label>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                  <p className="font-semibold text-slate-700">Schedule preview</p>
-                  <p className="mt-1">
-                    {form.startTime ? formatTimeLabel(form.startTime) : 'No start time selected'}
-                    {form.durationHours ? ` · ${formatDurationLabel(Number(form.durationHours)) || form.durationHours}` : ''}
-                  </p>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
                     Category
                     <select
                       value={form.category}
-                      onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
-                        setForm((current) => ({ ...current, category: event.target.value as AgendaCategory }))
-                      }
+                      onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as FormState['category'] }))}
                       className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-slate-400"
                     >
                       {Object.entries(CATEGORY_META).map(([key, meta]) => (
@@ -868,90 +511,33 @@ export function AgendaCalendar() {
                       ))}
                     </select>
                   </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    Reminder email
-                    <input
-                      type="email"
-                      value={form.reminderEmail}
-                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                        setForm((current) => ({ ...current, reminderEmail: event.target.value }))
-                      }
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition placeholder:text-slate-400 focus:border-slate-400"
-                      placeholder="name@example.com"
-                    />
-                  </label>
                 </div>
 
                 <label className="grid gap-2 text-sm font-medium text-slate-700">
                   Location
                   <input
                     value={form.location}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setForm((current) => ({ ...current, location: event.target.value }))
-                    }
+                    onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition placeholder:text-slate-400 focus:border-slate-400"
                     placeholder="Meeting room, airport, city..."
                   />
-                </label>
-                {locationSuggestions.length > 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-2">
-                    <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Location suggestions</p>
-                    <div className="space-y-1">
-                      {locationSuggestions.map((suggestion) => (
-                        <button
-                          key={`${suggestion.lat}-${suggestion.lon}`}
-                          type="button"
-                          onClick={() => {
-                            setForm((current) => ({ ...current, location: suggestion.displayName }));
-                            setLocationSuggestions([]);
-                            setLocationStatus('idle');
-                          }}
-                          className="flex w-full items-start justify-between rounded-2xl px-3 py-2 text-left text-sm text-slate-600 transition hover:bg-slate-50"
-                        >
-                          <span>
-                            <span className="block">{suggestion.displayName}</span>
-                            {suggestion.subtitle ? <span className="mt-1 block text-xs text-slate-400">{suggestion.subtitle}</span> : null}
-                          </span>
-                          <span className="ml-3 shrink-0 text-xs text-slate-400">Use</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {locationStatus === 'loading' ? <p className="text-xs text-slate-400">Searching matching places…</p> : null}
-                {locationStatus === 'error' ? <p className="text-xs text-red-500">Location lookup failed. You can still type a location manually.</p> : null}
-
-                <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={form.reminderEnabled}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setForm((current) => ({ ...current, reminderEnabled: event.target.checked }))
-                    }
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
-                  />
-                  <span>
-                    <span className="block font-semibold text-slate-700">Email reminder 30 minutes before start</span>
-                    <span className="mt-1 block text-xs leading-5 text-slate-500">
-                      Requires a start time, a reminder email, and configured SMTP environment variables. The current browser tab must remain open so the reminder can be triggered.
-                    </span>
-                  </span>
                 </label>
 
                 <label className="grid gap-2 text-sm font-medium text-slate-700">
                   Notes
                   <textarea
                     value={form.description}
-                    onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      setForm((current) => ({ ...current, description: event.target.value }))
-                    }
+                    onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
                     className="min-h-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition placeholder:text-slate-400 focus:border-slate-400"
                     placeholder="Add deadlines, travel details, to-do context, or reminders."
                   />
                 </label>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <button type="submit" className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+                  <button
+                    type="submit"
+                    className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
                     {editingId ? 'Update agenda' : 'Save agenda'}
                   </button>
                   <button
@@ -959,8 +545,6 @@ export function AgendaCalendar() {
                     onClick={() => {
                       setEditingId(null);
                       setForm(emptyForm());
-                      setLocationSuggestions([]);
-                      setReminderNotice('');
                     }}
                     className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300"
                   >
@@ -974,9 +558,7 @@ export function AgendaCalendar() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">Monthly agenda list</h3>
-                  <p className="text-sm text-slate-500">
-                    All scheduled entries for {MONTHS[currentMonth]} {YEAR}.
-                  </p>
+                  <p className="text-sm text-slate-500">All scheduled entries for {MONTHS[currentMonth]} {YEAR}.</p>
                 </div>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">{monthItems.length} items</span>
               </div>
@@ -999,15 +581,10 @@ export function AgendaCalendar() {
                         className="flex w-full items-start justify-between rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-left transition hover:border-slate-300"
                       >
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {formatDateHeading(item.date)} · {item.title}
-                          </p>
+                          <p className="text-sm font-semibold text-slate-900">{item.date} · {item.title}</p>
                           <p className="mt-1 text-sm text-slate-500">
-                            {[formatSchedule(item), item.location, item.description].filter(Boolean).join(' · ') || 'No extra notes'}
+                            {[item.time, item.location, item.description].filter(Boolean).join(' · ') || 'No extra notes'}
                           </p>
-                          {item.reminderEnabled && item.reminderEmail ? (
-                            <p className="mt-1 text-xs text-amber-700">Reminder email: {item.reminderEmail}</p>
-                          ) : null}
                         </div>
                         <span className={`ml-3 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.badge}`}>
                           {meta.label}
